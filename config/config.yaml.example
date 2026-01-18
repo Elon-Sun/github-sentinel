@@ -1,0 +1,87 @@
+# GitHub Sentinel 配置文件示例
+
+# GitHub 配置
+github:
+  # GitHub Personal Access Token
+  # 获取地址: https://github.com/settings/tokens
+  token: "your_github_token_here"
+  # API 请求超时时间（秒）
+  timeout: 30
+
+# AI 配置
+ai:
+  # AI 提供商: openai, anthropic, or custom
+  provider: "openai"
+  # API Key
+  api_key: "your_ai_api_key_here"
+  # 模型名称
+  model: "gpt-4-turbo-preview"
+  # 生成报告的语言
+  language: "zh-CN"
+  # 最大 token 数
+  max_tokens: 2000
+
+# 通知配置
+notification:
+  # 邮件通知
+  email:
+    enabled: true
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    username: "your_email@gmail.com"
+    password: "your_email_password"
+    from_addr: "your_email@gmail.com"
+    to_addrs:
+      - "recipient@example.com"
+  
+  # Webhook 通知
+  webhook:
+    enabled: false
+    url: "https://your-webhook-url.com/endpoint"
+    headers:
+      Content-Type: "application/json"
+
+# 调度配置
+schedule:
+  # 更新间隔: daily, weekly
+  interval: "daily"
+  # 每日更新时间（24小时制）
+  daily_time: "09:00"
+  # 每周更新日（0=Monday, 6=Sunday）
+  weekly_day: 0
+  weekly_time: "09:00"
+
+# 报告配置
+report:
+  # 报告格式: markdown, html, text
+  format: "markdown"
+  # 包含的更新类型
+  include:
+    - commits
+    - pull_requests
+    - issues
+    - releases
+  # 最大获取天数
+  max_days: 7
+  # 是否生成摘要
+  generate_summary: true
+
+# 数据库配置
+database:
+  # 数据库类型: sqlite
+  type: "sqlite"
+  # SQLite 数据库路径
+  path: "data/sentinel.db"
+
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # 日志文件路径
+  file: "logs/sentinel.log"
+  # 日志格式
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # 日志文件最大大小（MB）
+  max_size: 10
+  # 保留的日志文件数量
+  backup_count: 5
