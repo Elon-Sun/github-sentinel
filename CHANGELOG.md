@@ -1,5 +1,28 @@
 # 变更日志
 
+## [0.1] - 2026-01-18
+
+### 新增
+- 🎮 交互式命令行界面 (Interactive Shell)
+  - 使用 `python -m src.main interactive` 进入
+  - 支持 `add`, `list`, `update`, `remove` 等命令
+- ⚡ 即时检查功能
+  - 使用 `check` 命令无需订阅即可检查任意仓库
+  - 支持单仓库更新 `update [repo]`
+- 🛡️ 增强的 GitHub 客户端
+  - 支持匿名访问（无 Token 模式）
+  - 自动处理 Rate Limit 警告
+- 🔧 依赖优化
+  - 移除不必要的 `smtplib-ssl` 依赖
+
+### Release Notes (English)
+
+**New Features**
+- 🎮 **Interactive CLI**: New `interactive` command for REPL environment
+- ⚡ **Instant Check**: Check any repo without subscription using `check` command
+- 🛡️ **Enhanced Client**: Support anonymous access (no token)
+- 🔧 **Optimization**: Dependencies cleanup
+
 ## [0.0.1] - 2026-01-18
 
 ### 新增

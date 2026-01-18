@@ -8,7 +8,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="github-sentinel",
-    version="0.0.1",
+    version="0.1",
     author="Elon Sun",
     author_email="",
     description="An AI-powered GitHub repository monitoring and reporting tool",

@@ -18,11 +18,18 @@ class GitHubClient:
             token: GitHub Personal Access Token
         """
         if not token or token == "your_github_token_here":
-            raise ValueError("请在配置文件中设置有效的 GitHub Token")
-        
-        self.github = Github(token)
-        self.user = self.github.get_user()
-        logger.info(f"GitHub 客户端初始化成功，当前用户: {self.user.login}")
+            logger.warning("未设置有效的 GitHub Token，将使用匿名访问（受限于更严格的 Rate Limit）")
+            self.github = Github()
+            self.user = None
+        else:
+            self.github = Github(token)
+            try:
+                self.user = self.github.get_user()
+                logger.info(f"GitHub 客户端初始化成功，当前用户: {self.user.login}")
+            except Exception as e:
+                logger.warning(f"GitHub Token 无效或无法获取用户信息: {e}，将尝试匿名访问")
+                self.github = Github()
+                self.user = None
     
     def validate_repository(self, repo_name: str) -> bool:
         """验证仓库是否存在

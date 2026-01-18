@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+**简体中文** | [English](README_EN.md)
 
 一个智能的开源 AI Agent 工具，专为开发者和项目管理人员设计，能够自动跟踪和汇总 GitHub 仓库的最新动态。
 
@@ -56,7 +57,19 @@ schedule:
   interval: "daily"  # daily 或 weekly
 ```
 
-### 使用
+### 交互式模式（推荐）
+
+```bash
+# 进入交互式终端
+python -m src.main interactive
+
+# 在交互模式下:
+(sentinel) check langchain-ai/langchain  # 即时检查更新
+(sentinel) add microsoft/vscode          # 订阅仓库
+(sentinel) list                          # 查看订阅
+```
+
+### 命令使用
 
 ```bash
 # 添加订阅
@@ -99,7 +112,7 @@ github-sentinel/
 ## 📝 开发计划
 
 - [x] v0.0.1: 基础框架和核心功能
-- [ ] v0.1.0: AI 报告生成优化
+- [x] v0.1.0: 交互式命令行与即时检查
 - [ ] v0.2.0: Web 控制台界面
 - [ ] v0.3.0: 更多通知渠道（Slack, Discord）
 - [ ] v1.0.0: 生产就绪版本
