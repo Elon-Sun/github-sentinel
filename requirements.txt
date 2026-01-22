@@ -3,14 +3,11 @@ PyGithub==2.1.1
 requests==2.31.0
 
 # AI / LLM
-openai==1.12.0
+openai>=1.30.0
 anthropic==0.18.1
 
 # Task Scheduling
 APScheduler==3.10.4
-
-# Database
-sqlalchemy==2.0.25
 
 # Configuration
 PyYAML==6.0.1

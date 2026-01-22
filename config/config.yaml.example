@@ -68,10 +68,10 @@ report:
 
 # 数据库配置
 database:
-  # 数据库类型: sqlite
-  type: "sqlite"
-  # SQLite 数据库路径
-  path: "data/sentinel.db"
+  # 数据库类型: json
+  type: "json"
+  # JSON 数据文件路径
+  path: "data/sentinel.json"
 
 # 日志配置
 logging:

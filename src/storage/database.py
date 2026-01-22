@@ -1,186 +1,178 @@
 """
-数据库管理
+数据存储管理（JSON 文件）
 """
 
-import sqlite3
+import json
 from pathlib import Path
-from typing import List, Tuple, Any, Optional
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from loguru import logger
 
 
 class Database:
-    """SQLite 数据库管理"""
+    """JSON 文件数据存储"""
     
-    def __init__(self, db_path: str = "data/sentinel.db"):
+    def __init__(self, db_path: str = "data/sentinel.json"):
         self.db_path = Path(db_path)
         self._ensure_directory()
-        self.connection = None
-        self._init_database()
+        self.data = self._load_data()
+        logger.info(f"数据存储初始化成功: {self.db_path}")
     
     def _ensure_directory(self):
-        """确保数据库目录存在"""
+        """确保数据目录存在"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
     
-    def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
-        if self.connection is None:
-            self.connection = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self.connection.row_factory = sqlite3.Row
-        return self.connection
+    def _load_data(self) -> Dict:
+        """从 JSON 文件加载数据"""
+        if self.db_path.exists():
+            try:
+                with open(self.db_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"加载数据文件失败: {e}，创建新文件")
+                return self._init_data_structure()
+        else:
+            return self._init_data_structure()
     
-    def _init_database(self):
-        """初始化数据库表"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        # 创建订阅表
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS subscriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                repo_name TEXT NOT NULL UNIQUE,
-                tags TEXT,
-                created_at TEXT NOT NULL,
-                last_updated TEXT
-            )
-        """)
-        
-        # 创建更新记录表
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS update_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                subscription_id INTEGER NOT NULL,
-                update_data TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
-            )
-        """)
-        
-        # 创建配置表
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-        
-        # 创建索引
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_subscriptions_repo_name 
-            ON subscriptions(repo_name)
-        """)
-        
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_update_records_subscription_id 
-            ON update_records(subscription_id)
-        """)
-        
-        conn.commit()
-        logger.info(f"数据库初始化成功: {self.db_path}")
+    def _init_data_structure(self) -> Dict:
+        """初始化数据结构"""
+        return {
+            'subscriptions': [],
+            'update_records': [],
+            'settings': {},
+            'next_subscription_id': 1,
+            'next_record_id': 1
+        }
     
-    def execute_query(self, query: str, params: Tuple = ()) -> List[Tuple]:
-        """执行查询语句
-        
-        Args:
-            query: SQL 查询语句
-            params: 查询参数
-        
-        Returns:
-            查询结果列表
-        """
+    def _save_data(self):
+        """保存数据到 JSON 文件"""
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-            return results
+            with open(self.db_path, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"查询执行失败: {e}")
+            logger.error(f"保存数据失败: {e}")
             raise
     
-    def execute_update(self, query: str, params: Tuple = ()) -> int:
-        """执行更新语句（INSERT, UPDATE, DELETE）
+    def add_subscription(self, repo_name: str, tags: str = '') -> int:
+        """添加订阅"""
+        # 检查是否已存在
+        for sub in self.data['subscriptions']:
+            if sub['repo_name'] == repo_name:
+                raise ValueError(f"仓库已订阅: {repo_name}")
         
-        Args:
-            query: SQL 更新语句
-            params: 更新参数
+        subscription_id = self.data['next_subscription_id']
+        self.data['next_subscription_id'] += 1
         
-        Returns:
-            受影响的行数或新插入的 ID
-        """
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            conn.commit()
-            
-            # 如果是 INSERT 操作，返回新插入的 ID
-            if query.strip().upper().startswith('INSERT'):
-                return cursor.lastrowid
-            else:
-                return cursor.rowcount
-                
-        except Exception as e:
-            logger.error(f"更新执行失败: {e}")
-            conn.rollback()
-            raise
+        subscription = {
+            'id': subscription_id,
+            'repo_name': repo_name,
+            'tags': tags,
+            'created_at': datetime.now().isoformat(),
+            'last_updated': None
+        }
+        
+        self.data['subscriptions'].append(subscription)
+        self._save_data()
+        
+        logger.info(f"添加订阅成功: {repo_name} (ID: {subscription_id})")
+        return subscription_id
     
-    def execute_many(self, query: str, params_list: List[Tuple]) -> int:
-        """批量执行更新语句
+    def remove_subscription(self, repo_name: str) -> int:
+        """移除订阅"""
+        original_length = len(self.data['subscriptions'])
         
-        Args:
-            query: SQL 更新语句
-            params_list: 参数列表
+        # 找到订阅 ID
+        subscription_id = None
+        for sub in self.data['subscriptions']:
+            if sub['repo_name'] == repo_name:
+                subscription_id = sub['id']
+                break
         
-        Returns:
-            受影响的行数
-        """
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.executemany(query, params_list)
-            conn.commit()
-            return cursor.rowcount
-        except Exception as e:
-            logger.error(f"批量更新执行失败: {e}")
-            conn.rollback()
-            raise
+        # 移除订阅
+        self.data['subscriptions'] = [
+            sub for sub in self.data['subscriptions'] 
+            if sub['repo_name'] != repo_name
+        ]
+        
+        # 移除相关的更新记录
+        if subscription_id:
+            self.data['update_records'] = [
+                record for record in self.data['update_records']
+                if record['subscription_id'] != subscription_id
+            ]
+        
+        affected = original_length - len(self.data['subscriptions'])
+        if affected > 0:
+            self._save_data()
+            logger.info(f"移除订阅成功: {repo_name}")
+        
+        return affected
+    
+    def get_subscriptions(self) -> List[Dict]:
+        """获取所有订阅"""
+        return self.data['subscriptions']
+    
+    def get_subscription_by_name(self, repo_name: str) -> Optional[Dict]:
+        """根据仓库名获取订阅"""
+        for sub in self.data['subscriptions']:
+            if sub['repo_name'] == repo_name:
+                return sub
+        return None
+    
+    def update_subscription_last_updated(self, subscription_id: int):
+        """更新订阅的最后更新时间"""
+        for sub in self.data['subscriptions']:
+            if sub['id'] == subscription_id:
+                sub['last_updated'] = datetime.now().isoformat()
+                self._save_data()
+                break
+    
+    def add_update_record(self, subscription_id: int, update_data: Dict) -> int:
+        """添加更新记录"""
+        record_id = self.data['next_record_id']
+        self.data['next_record_id'] += 1
+        
+        record = {
+            'id': record_id,
+            'subscription_id': subscription_id,
+            'update_data': update_data,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        self.data['update_records'].append(record)
+        self._save_data()
+        
+        logger.info(f"添加更新记录成功: 记录 ID {record_id}")
+        return record_id
+    
+    def get_update_records(self, subscription_id: int, limit: int = 10) -> List[Dict]:
+        """获取订阅的更新记录"""
+        records = [
+            record for record in self.data['update_records']
+            if record['subscription_id'] == subscription_id
+        ]
+        
+        # 按创建时间倒序排序
+        records.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return records[:limit]
     
     def get_setting(self, key: str, default: Any = None) -> Optional[str]:
         """获取配置值"""
-        results = self.execute_query(
-            "SELECT value FROM settings WHERE key = ?",
-            (key,)
-        )
-        
-        if results:
-            return results[0][0]
-        return default
+        return self.data['settings'].get(key, default)
     
     def set_setting(self, key: str, value: str):
         """设置配置值"""
-        from datetime import datetime
-        
-        # 先尝试更新
-        updated = self.execute_update(
-            "UPDATE settings SET value = ?, updated_at = ? WHERE key = ?",
-            (value, datetime.now().isoformat(), key)
-        )
-        
-        # 如果没有更新任何行，则插入新记录
-        if updated == 0:
-            self.execute_update(
-                "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
-                (key, value, datetime.now().isoformat())
-            )
+        self.data['settings'][key] = {
+            'value': value,
+            'updated_at': datetime.now().isoformat()
+        }
+        self._save_data()
     
     def close(self):
-        """关闭数据库连接"""
-        if self.connection:
-            self.connection.close()
-            self.connection = None
-            logger.info("数据库连接已关闭")
+        """关闭数据存储（JSON 不需要关闭连接）"""
+        logger.info("数据存储已关闭")
     
     def __del__(self):
-        """析构函数，确保连接关闭"""
-        self.close()
+        """析构函数"""
+        pass

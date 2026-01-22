@@ -3,10 +3,8 @@
 """
 
 import click
-import cmd
 import sys
 from rich.console import Console
-from rich.table import Table
 from loguru import logger
 from pathlib import Path
 
@@ -16,6 +14,8 @@ from src.core.scheduler import Scheduler
 from src.ai.report_generator import ReportGenerator
 from src.storage.database import Database
 from src.config_loader import ConfigLoader
+from src.cli.interactive_shell import SentinelShell
+from src.cli.subscription_commands import SubscriptionCommands
 
 console = Console()
 
@@ -25,7 +25,7 @@ class GitHubSentinel:
     
     def __init__(self, config_path: str = "config/config.yaml"):
         self.config = ConfigLoader(config_path)
-        self.db = Database(self.config.get("database.path", "data/sentinel.db"))
+        self.db = Database(self.config.get("database.path", "data/sentinel.json"))
         self.github_client = GitHubClient(self.config.get("github.token"))
         self.subscription_manager = SubscriptionManager(self.db, self.github_client)
         self.report_generator = ReportGenerator(self.config)
@@ -132,87 +132,47 @@ class GitHubSentinel:
             from src.notifier.webhook_notifier import WebhookNotifier
             webhook_notifier = WebhookNotifier(self.config)
             webhook_notifier.send(repo_name, report)
-
-
-class SentinelShell(cmd.Cmd):
-    """交互式命令行界面"""
-    intro = '欢迎使用 GitHub Sentinel 交互式终端。输入 help 或 ? 查看命令列表。\n'
-    prompt = '(sentinel) '
-
-    def __init__(self):
-        super().__init__()
-        self.sentinel = GitHubSentinel()
-
-    def do_list(self, arg):
-        """列出所有订阅: list"""
-        subscriptions = self.sentinel.subscription_manager.list_subscriptions()
+    
+    def generate_daily_reports(self):
+        """为所有订阅的仓库生成每日报告"""
+        logger.info("开始生成每日报告...")
+        subscriptions = self.subscription_manager.list_subscriptions()
+        
         if not subscriptions:
-            console.print("[yellow]没有订阅的仓库[/yellow]")
+            logger.warning("没有订阅的仓库")
             return
         
-        table = Table(title="订阅列表")
-        table.add_column("ID", style="cyan")
-        table.add_column("仓库", style="magenta")
-        table.add_column("标签", style="green")
-        table.add_column("订阅时间", style="yellow")
+        success_count = 0
+        fail_count = 0
         
         for sub in subscriptions:
-            table.add_row(
-                str(sub['id']),
-                sub['repo_name'],
-                sub.get('tags', ''),
-                sub['created_at']
-            )
-        console.print(table)
-
-    def do_add(self, arg):
-        """添加订阅: add owner/repo [tags]"""
-        args = arg.split()
-        if not args:
-            console.print("[red]错误: 请指定仓库名称 (owner/repo)[/red]")
-            return
+            repo_name = sub['repo_name']
+            try:
+                logger.info(f"正在生成 {repo_name} 的每日报告...")
+                
+                # 获取今日的 Issues 和 PRs
+                issues = self.github_client.get_daily_issues(repo_name)
+                pull_requests = self.github_client.get_daily_pull_requests(repo_name)
+                
+                # 导出每日进展
+                progress_file = self.github_client.export_daily_progress(
+                    repo_name, issues, pull_requests
+                )
+                
+                # 生成 AI 报告
+                report_file = self.report_generator.generate_daily_report(
+                    repo_name, progress_file
+                )
+                
+                logger.info(f"✓ {repo_name} 每日报告已生成: {report_file}")
+                success_count += 1
+                
+            except Exception as e:
+                logger.error(f"✗ 生成 {repo_name} 的每日报告失败: {e}")
+                fail_count += 1
         
-        repo_name = args[0]
-        tags = args[1].split(',') if len(args) > 1 else []
-        
-        try:
-            self.sentinel.subscription_manager.add_subscription(repo_name, tags)
-            console.print(f"[green]✓[/green] 已添加订阅: {repo_name}")
-        except Exception as e:
-            console.print(f"[red]✗[/red] 添加订阅失败: {e}")
-
-    def do_remove(self, arg):
-        """移除订阅: remove owner/repo"""
-        if not arg:
-            console.print("[red]错误: 请指定仓库名称[/red]")
-            return
-            
-        try:
-            self.sentinel.subscription_manager.remove_subscription(arg)
-            console.print(f"[green]✓[/green] 已移除订阅: {arg}")
-        except Exception as e:
-            console.print(f"[red]✗[/red] 移除订阅失败: {e}")
-
-    def do_update(self, arg):
-        """更新仓库: update [owner/repo]
-        如果不指定仓库，则更新所有订阅。
-        """
-        if arg:
-            self.sentinel.update_single_repository(arg)
-        else:
-            self.sentinel.update_repositories()
-
-    def do_exit(self, arg):
-        """退出交互模式"""
-        console.print("再见！")
-        return True
-    
-    def do_quit(self, arg):
-        """退出交互模式"""
-        return self.do_exit(arg)
-
-    def emptyline(self):
-        pass
+        logger.info(f"每日报告生成完成 - 成功: {success_count}, 失败: {fail_count}")
+        return success_count, fail_count
 
 
 @click.group()
@@ -258,33 +218,44 @@ def subscribe_remove(repo_name: str):
     except Exception as e:
         console.print(f"[red]✗[/red] 移除订阅失败: {e}")
 
+@cli.command()
+def interactive():
+    """启动交互式命令行界面"""
+    try:
+        sentinel = GitHubSentinel()
+        SentinelShell(sentinel).cmdloop()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]退出...[/yellow]")
+
+@cli.group()
+def subscribe():
+    """管理仓库订阅"""
+    pass
+
+@subscribe.command("add")
+@click.argument("repo_name")
+@click.option("--tags", "-t", help="标签（逗号分隔）", default="")
+def subscribe_add(repo_name: str, tags: str):
+    """添加仓库订阅"""
+    sentinel = GitHubSentinel()
+    commands = SubscriptionCommands(sentinel)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    commands.add_subscription(repo_name, tag_list)
+
+@subscribe.command("remove")
+@click.argument("repo_name")
+def subscribe_remove(repo_name: str):
+    """移除仓库订阅"""
+    sentinel = GitHubSentinel()
+    commands = SubscriptionCommands(sentinel)
+    commands.remove_subscription(repo_name)
+
 @subscribe.command("list")
 def subscribe_list():
     """列出所有订阅"""
-    try:
-        sentinel = GitHubSentinel()
-        subscriptions = sentinel.subscription_manager.list_subscriptions()
-        
-        if not subscriptions:
-            console.print("[yellow]没有订阅的仓库[/yellow]")
-            return
-        
-        table = Table(title="订阅列表")
-        table.add_column("ID", style="cyan")
-        table.add_column("仓库", style="magenta")
-        table.add_column("标签", style="green")
-        table.add_column("订阅时间", style="yellow")
-        
-        for sub in subscriptions:
-            table.add_row(
-                str(sub['id']),
-                sub['repo_name'],
-                sub.get('tags', ''),
-                sub['created_at']
-            )
-        console.print(table)
-    except Exception as e:
-        console.print(f"[red]✗[/red] 获取订阅列表失败: {e}")
+    sentinel = GitHubSentinel()
+    commands = SubscriptionCommands(sentinel)
+    commands.list_subscriptions()
 
 @cli.command()
 def update():
@@ -299,11 +270,9 @@ def update():
 @click.argument("repo_name")
 def check_repo(repo_name: str):
     """检查单个仓库更新并生成报告（无论是否订阅）"""
-    try:
-        sentinel = GitHubSentinel()
-        sentinel.update_single_repository(repo_name)
-    except Exception as e:
-        console.print(f"[red]✗[/red] 检查失败: {e}")
+    sentinel = GitHubSentinel()
+    commands = SubscriptionCommands(sentinel)
+    commands.check_repository(repo_name)
 
 @cli.command()
 def start():

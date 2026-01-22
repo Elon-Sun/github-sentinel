@@ -5,6 +5,8 @@ AI 驱动的报告生成器
 from typing import Dict, List
 from loguru import logger
 import json
+import os
+from datetime import datetime
 
 
 class ReportGenerator:
@@ -31,7 +33,7 @@ class ReportGenerator:
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=self.api_key)
-                logger.info("OpenAI 客户端初始化成功")
+                logger.info("OpenAI  客户端初始化成功")
             except Exception as e:
                 logger.error(f"OpenAI 客户端初始化失败: {e}")
                 self.client = None
@@ -43,6 +45,14 @@ class ReportGenerator:
                 logger.info("Anthropic 客户端初始化成功")
             except Exception as e:
                 logger.error(f"Anthropic 客户端初始化失败: {e}")
+                self.client = None
+        elif self.provider == "deepseek":
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+                logger.info("DeepSeek 客户端初始化成功")
+            except Exception as e:
+                logger.error(f"DeepSeek 客户端初始化失败: {e}")
                 self.client = None
         else:
             logger.warning(f"未知的 AI 提供商: {self.provider}")
@@ -69,7 +79,7 @@ class ReportGenerator:
             # 构建提示词
             prompt = self._build_prompt(repo_name, updates)
             
-            if self.provider == "openai":
+            if self.provider == "openai" or self.provider == "deepseek":
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -302,3 +312,165 @@ class ReportGenerator:
         ])
         
         return '\n'.join(report_lines)
+    
+    def generate_daily_report(self, repo_name: str, progress_file: str, 
+                             output_dir: str = "data/reports") -> str:
+        """读取每日进展文件，生成正式的项目每日报告
+        
+        Args:
+            repo_name: 仓库名称
+            progress_file: 每日进展的 markdown 文件路径
+            output_dir: 报告输出目录
+        
+        Returns:
+            生成的报告文件路径
+        """
+        logger.info(f"开始生成 {repo_name} 的每日报告...")
+        
+        # 读取每日进展文件
+        if not os.path.exists(progress_file):
+            raise FileNotFoundError(f"每日进展文件不存在: {progress_file}")
+        
+        with open(progress_file, 'r', encoding='utf-8') as f:
+            progress_content = f.read()
+        
+        # 使用 AI 生成报告
+        if self.client:
+            report_content = self._generate_ai_daily_report(repo_name, progress_content)
+        else:
+            logger.warning("未配置 AI，将使用原始进展文件作为报告")
+            report_content = progress_content
+        
+        # 创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 生成报告文件名
+        repo_safe_name = repo_name.replace('/', '_')
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        report_filename = f"{repo_safe_name}_report_{date_str}.md"
+        report_filepath = os.path.join(output_dir, report_filename)
+        
+        # 写入报告
+        with open(report_filepath, 'w', encoding='utf-8') as f:
+            f.write(report_content)
+        
+        logger.info(f"每日报告已生成: {report_filepath}")
+        return report_filepath
+    
+    def _generate_ai_daily_report(self, repo_name: str, progress_content: str) -> str:
+        """使用 AI 生成正式的每日报告
+        
+        Args:
+            repo_name: 仓库名称
+            progress_content: 每日进展的原始内容
+        
+        Returns:
+            生成的正式报告内容
+        """
+        try:
+            # 构建提示词
+            prompt = f"""
+你是一位专业的技术项目分析师，负责为 GitHub 项目生成正式的每日报告。
+
+以下是 {repo_name} 项目的每日进展记录：
+
+{progress_content}
+
+请基于以上信息，生成一份简短汇总的项目每日报告。报告要求根据功能合并同类项，至少包含：1）新增功能；2）主要改进；3）修复问题；
+"""
+            
+            if self.provider == "openai" or self.provider == "deepseek":
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"你是一位专业的技术项目分析师，擅长分析 GitHub 项目动态并生成正式的项目报告。请用{self.language}语言生成报告。"
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=self.config.get("ai.max_tokens", 3000),
+                    temperature=0.5  # 降低温度以获得更稳定、正式的输出
+                )
+                
+                report = response.choices[0].message.content
+                
+            elif self.provider == "anthropic":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=self.config.get("ai.max_tokens", 3000),
+                    temperature=0.5,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
+                
+                report = response.content[0].text
+            
+            else:
+                logger.warning(f"未知的 AI 提供商: {self.provider}，使用原始进展")
+                return progress_content
+            
+            # 添加报告元信息
+            metadata = f"""---
+**项目**: {repo_name}  
+**报告日期**: {datetime.now().strftime('%Y-%m-%d')}  
+**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
+**生成方式**: AI 分析（{self.provider} - {self.model}）
+
+---
+
+"""
+            
+            full_report = metadata + report + "\n\n---\n\n*本报告由 GitHub Sentinel 基于 AI 技术自动生成*\n"
+            
+            logger.info(f"AI 每日报告生成成功: {repo_name}")
+            return full_report
+            
+        except Exception as e:
+            logger.error(f"AI 每日报告生成失败: {e}，使用原始进展文件")
+            return progress_content
+    
+    def batch_generate_reports(self, repo_names: List[str], date: datetime = None,
+                               progress_dir: str = "data/daily_progress",
+                               output_dir: str = "data/reports") -> List[str]:
+        """批量生成多个仓库的每日报告
+        
+        Args:
+            repo_names: 仓库名称列表
+            date: 目标日期，默认为当天
+            progress_dir: 每日进展文件目录
+            output_dir: 报告输出目录
+        
+        Returns:
+            生成的报告文件路径列表
+        """
+        if date is None:
+            date = datetime.now()
+        
+        date_str = date.strftime('%Y-%m-%d')
+        report_files = []
+        
+        for repo_name in repo_names:
+            try:
+                # 构建进展文件路径
+                repo_safe_name = repo_name.replace('/', '_')
+                progress_file = os.path.join(progress_dir, f"{repo_safe_name}_{date_str}.md")
+                
+                # 生成报告
+                report_file = self.generate_daily_report(repo_name, progress_file, output_dir)
+                report_files.append(report_file)
+                
+            except Exception as e:
+                logger.error(f"生成 {repo_name} 的报告失败: {e}")
+                continue
+        
+        logger.info(f"批量报告生成完成，成功: {len(report_files)}/{len(repo_names)}")
+        return report_files
+

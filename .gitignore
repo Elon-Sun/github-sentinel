@@ -109,6 +109,8 @@ venv.bak/
 config/config.yaml
 data/*.db
 data/*.sqlite
+data/daily_progress/*.md
+data/reports/*.md
 logs/*.log
 *.log
 

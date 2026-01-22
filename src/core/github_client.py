@@ -3,9 +3,10 @@ GitHub API 客户端
 """
 
 from github import Github, GithubException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from loguru import logger
+import os
 
 
 class GitHubClient:
@@ -194,3 +195,284 @@ class GitHubClient:
                 'reset': rate_limit.core.reset.isoformat()
             }
         }
+    
+    def get_daily_issues(self, repo_name: str, date: datetime = None) -> List[Dict]:
+        """获取指定日期的 Issues 列表
+        
+        Args:
+            repo_name: 仓库名称，格式为 owner/repo
+            date: 目标日期，默认为当天
+        
+        Returns:
+            Issues 列表
+        """
+        if date is None:
+            date = datetime.now(timezone.utc)
+        
+        # 获取指定日期的起始和结束时间（使用 UTC 时区）
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = start_date + timedelta(days=1)
+        
+        logger.info(f"正在获取仓库 {repo_name} 在 {date.strftime('%Y-%m-%d')} 的 Issues...")
+        
+        try:
+            repo = self.github.get_repo(repo_name)
+            issues = []
+            
+            # 获取在指定日期更新或创建的 Issues
+            for issue in repo.get_issues(state='all', sort='updated', direction='desc'):
+                # 跳过 Pull Requests
+                if issue.pull_request:
+                    continue
+                
+                # 检查是否在目标日期范围内创建或更新
+                created_in_range = start_date <= issue.created_at < end_date
+                updated_in_range = start_date <= issue.updated_at < end_date
+                
+                if created_in_range or updated_in_range:
+                    issues.append({
+                        'number': issue.number,
+                        'title': issue.title,
+                        'state': issue.state,
+                        'author': issue.user.login if issue.user else 'Unknown',
+                        'created_at': issue.created_at.isoformat(),
+                        'updated_at': issue.updated_at.isoformat(),
+                        'comments': issue.comments,
+                        'labels': [label.name for label in issue.labels],
+                        'body': issue.body or '',
+                        'url': issue.html_url,
+                        'is_new': created_in_range  # 标记是否为新创建
+                    })
+                
+                # 如果已经过了目标日期，停止查询
+                if issue.updated_at < start_date:
+                    break
+                    
+                # 限制数量
+                if len(issues) >= 100:
+                    break
+            
+            logger.info(f"获取到 {len(issues)} 个 Issues")
+            return issues
+            
+        except GithubException as e:
+            logger.error(f"获取仓库 {repo_name} 的 Issues 失败: {e}")
+            raise
+    
+    def get_daily_pull_requests(self, repo_name: str, date: datetime = None) -> List[Dict]:
+        """获取指定日期的 Pull Requests 列表
+        
+        Args:
+            repo_name: 仓库名称，格式为 owner/repo
+            date: 目标日期，默认为当天
+        
+        Returns:
+            Pull Requests 列表
+        """
+        if date is None:
+            date = datetime.now(timezone.utc)
+        
+        # 获取指定日期的起始和结束时间（使用 UTC 时区）
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = start_date + timedelta(days=1)
+        
+        logger.info(f"正在获取仓库 {repo_name} 在 {date.strftime('%Y-%m-%d')} 的 Pull Requests...")
+        
+        try:
+            repo = self.github.get_repo(repo_name)
+            prs = []
+            
+            # 获取在指定日期更新或创建的 PRs
+            for pr in repo.get_pulls(state='all', sort='updated', direction='desc'):
+                # 检查是否在目标日期范围内创建或更新
+                created_in_range = start_date <= pr.created_at < end_date
+                updated_in_range = start_date <= pr.updated_at < end_date
+                
+                if created_in_range or updated_in_range:
+                    prs.append({
+                        'number': pr.number,
+                        'title': pr.title,
+                        'state': pr.state,
+                        'author': pr.user.login if pr.user else 'Unknown',
+                        'created_at': pr.created_at.isoformat(),
+                        'updated_at': pr.updated_at.isoformat(),
+                        'merged': pr.merged,
+                        'merged_at': pr.merged_at.isoformat() if pr.merged_at else None,
+                        'body': pr.body or '',
+                        'additions': pr.additions,
+                        'deletions': pr.deletions,
+                        'changed_files': pr.changed_files,
+                        'url': pr.html_url,
+                        'is_new': created_in_range  # 标记是否为新创建
+                    })
+                
+                # 如果已经过了目标日期，停止查询
+                if pr.updated_at < start_date:
+                    break
+                    
+                # 限制数量
+                if len(prs) >= 100:
+                    break
+            
+            logger.info(f"获取到 {len(prs)} 个 Pull Requests")
+            return prs
+            
+        except GithubException as e:
+            logger.error(f"获取仓库 {repo_name} 的 Pull Requests 失败: {e}")
+            raise
+    
+    def export_daily_progress(self, repo_name: str, issues: List[Dict], 
+                             pull_requests: List[Dict], date: datetime = None,
+                             output_dir: str = "data/daily_progress") -> str:
+        """将每日进展导出为 Markdown 文件
+        
+        Args:
+            repo_name: 仓库名称
+            issues: Issues 列表
+            pull_requests: Pull Requests 列表
+            date: 日期，默认为当天
+            output_dir: 输出目录
+        
+        Returns:
+            导出的文件路径
+        """
+        if date is None:
+            date = datetime.now()
+        
+        # 创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 生成文件名：repo_name_YYYY-MM-DD.md
+        repo_safe_name = repo_name.replace('/', '_')
+        date_str = date.strftime('%Y-%m-%d')
+        filename = f"{repo_safe_name}_{date_str}.md"
+        filepath = os.path.join(output_dir, filename)
+        
+        # 生成 Markdown 内容
+        content = self._generate_progress_markdown(repo_name, issues, pull_requests, date)
+        
+        # 写入文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"每日进展已导出到: {filepath}")
+        return filepath
+    
+    def _generate_progress_markdown(self, repo_name: str, issues: List[Dict], 
+                                    pull_requests: List[Dict], date: datetime) -> str:
+        """生成每日进展的 Markdown 内容"""
+        date_str = date.strftime('%Y-%m-%d')
+        
+        content = f"""# {repo_name} 每日进展
+
+**日期**: {date_str}  
+**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+## 📊 概览
+
+- **Issues 总数**: {len(issues)}
+  - 新增: {sum(1 for i in issues if i.get('is_new'))}
+  - 更新: {sum(1 for i in issues if not i.get('is_new'))}
+  - 开放: {sum(1 for i in issues if i.get('state') == 'open')}
+  - 关闭: {sum(1 for i in issues if i.get('state') == 'closed')}
+
+- **Pull Requests 总数**: {len(pull_requests)}
+  - 新增: {sum(1 for pr in pull_requests if pr.get('is_new'))}
+  - 更新: {sum(1 for pr in pull_requests if not pr.get('is_new'))}
+  - 开放: {sum(1 for pr in pull_requests if pr.get('state') == 'open')}
+  - 已合并: {sum(1 for pr in pull_requests if pr.get('merged'))}
+  - 已关闭: {sum(1 for pr in pull_requests if pr.get('state') == 'closed' and not pr.get('merged'))}
+
+---
+
+## 🐛 Issues
+
+"""
+        
+        if not issues:
+            content += "*今日无 Issues 更新*\n\n"
+        else:
+            # 按照新增和更新分组
+            new_issues = [i for i in issues if i.get('is_new')]
+            updated_issues = [i for i in issues if not i.get('is_new')]
+            
+            if new_issues:
+                content += "### 🆕 新增 Issues\n\n"
+                for issue in new_issues:
+                    labels = ', '.join([f"`{label}`" for label in issue.get('labels', [])])
+                    content += f"#### #{issue['number']} {issue['title']}\n\n"
+                    content += f"- **状态**: {issue['state']}\n"
+                    content += f"- **创建者**: @{issue['author']}\n"
+                    content += f"- **标签**: {labels if labels else '无'}\n"
+                    content += f"- **链接**: {issue['url']}\n"
+                    if issue.get('body'):
+                        # 限制描述长度
+                        body = issue['body'][:300] + '...' if len(issue['body']) > 300 else issue['body']
+                        content += f"- **描述**: {body}\n"
+                    content += "\n"
+            
+            if updated_issues:
+                content += "### 🔄 更新的 Issues\n\n"
+                for issue in updated_issues:
+                    labels = ', '.join([f"`{label}`" for label in issue.get('labels', [])])
+                    content += f"#### #{issue['number']} {issue['title']}\n\n"
+                    content += f"- **状态**: {issue['state']}\n"
+                    content += f"- **创建者**: @{issue['author']}\n"
+                    content += f"- **标签**: {labels if labels else '无'}\n"
+                    content += f"- **评论数**: {issue.get('comments', 0)}\n"
+                    content += f"- **链接**: {issue['url']}\n"
+                    content += "\n"
+        
+        content += "---\n\n## 🔀 Pull Requests\n\n"
+        
+        if not pull_requests:
+            content += "*今日无 Pull Requests 更新*\n\n"
+        else:
+            # 按照新增和更新分组
+            new_prs = [pr for pr in pull_requests if pr.get('is_new')]
+            updated_prs = [pr for pr in pull_requests if not pr.get('is_new')]
+            
+            if new_prs:
+                content += "### 🆕 新增 Pull Requests\n\n"
+                for pr in new_prs:
+                    status_emoji = "✅" if pr.get('merged') else "🔄" if pr.get('state') == 'open' else "❌"
+                    content += f"#### {status_emoji} #{pr['number']} {pr['title']}\n\n"
+                    content += f"- **状态**: {pr['state']}"
+                    if pr.get('merged'):
+                        content += " (已合并)"
+                    content += "\n"
+                    content += f"- **创建者**: @{pr['author']}\n"
+                    content += f"- **代码变更**: +{pr.get('additions', 0)} -{pr.get('deletions', 0)}\n"
+                    content += f"- **改动文件**: {pr.get('changed_files', 0)}\n"
+                    content += f"- **链接**: {pr['url']}\n"
+                    if pr.get('body'):
+                        # 限制描述长度
+                        body = pr['body'][:300] + '...' if len(pr['body']) > 300 else pr['body']
+                        content += f"- **描述**: {body}\n"
+                    content += "\n"
+            
+            if updated_prs:
+                content += "### 🔄 更新的 Pull Requests\n\n"
+                for pr in updated_prs:
+                    status_emoji = "✅" if pr.get('merged') else "🔄" if pr.get('state') == 'open' else "❌"
+                    content += f"#### {status_emoji} #{pr['number']} {pr['title']}\n\n"
+                    content += f"- **状态**: {pr['state']}"
+                    if pr.get('merged'):
+                        content += " (已合并)"
+                    content += "\n"
+                    content += f"- **创建者**: @{pr['author']}\n"
+                    content += f"- **代码变更**: +{pr.get('additions', 0)} -{pr.get('deletions', 0)}\n"
+                    content += f"- **改动文件**: {pr.get('changed_files', 0)}\n"
+                    content += f"- **链接**: {pr['url']}\n"
+                    content += "\n"
+        
+        content += "---\n\n*本报告由 GitHub Sentinel 自动生成*\n"
+        
+        return content
+

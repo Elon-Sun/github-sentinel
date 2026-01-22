@@ -9,7 +9,8 @@
 ## ✨ 特性
 
 - 🔔 **智能订阅管理**: 轻松订阅和管理多个 GitHub 仓库
-- 📊 **AI 驱动报告**: 使用 AI 自动生成易读的更新摘要和报告
+- 📊 **每日进展追踪** (v0.2): 自动获取并导出每日 Issues 和 Pull Requests
+- 🤖 **AI 驱动报告**: 使用 GPT-4/Claude 自动生成专业的项目报告
 - ⏰ **定时获取**: 支持每日/每周自动获取仓库更新
 - 📬 **多渠道通知**: 支持邮件、Webhook 等多种通知方式
 - 📈 **趋势分析**: 跟踪项目活跃度和发展趋势
@@ -85,6 +86,33 @@ python -m src.main update
 python -m src.main start
 ```
 
+### v0.2 新功能：每日报告 (推荐)
+
+```bash
+# 运行每日报告示例
+python examples/daily_report_example.py
+
+# 或在 Python 代码中使用：
+from src.core.github_client import GitHubClient
+from src.ai.report_generator import ReportGenerator
+
+# 获取每日数据并生成报告
+github_client = GitHubClient("your_token")
+issues = github_client.get_daily_issues("pytorch/pytorch")
+prs = github_client.get_daily_pull_requests("pytorch/pytorch")
+
+# 导出每日进展
+progress_file = github_client.export_daily_progress("pytorch/pytorch", issues, prs)
+
+# 生成 AI 报告
+report_generator = ReportGenerator(config)
+report_file = report_generator.generate_daily_report("pytorch/pytorch", progress_file)
+```
+
+📚 **详细文档**: 
+- [v0.2 功能说明](docs/v0.2-features.md)
+- [v0.2 快速入门](docs/v0.2-quickstart.md)
+
 ## 📁 项目结构
 
 ```
@@ -92,10 +120,19 @@ github-sentinel/
 ├── config/              # 配置文件
 ├── src/                 # 源代码
 │   ├── core/           # 核心功能模块
+│   │   └── github_client.py  # GitHub API (v0.2: 新增每日数据获取)
 │   ├── ai/             # AI 报告生成
+│   │   └── report_generator.py  # (v0.2: 新增 AI 报告生成)
 │   ├── notifier/       # 通知系统
 │   └── storage/        # 数据存储
 ├── data/               # 数据文件
+│   ├── daily_progress/ # (v0.2) 每日进展 Markdown 文件
+│   └── reports/        # (v0.2) AI 生成的报告
+├── examples/           # 使用示例
+│   └── daily_report_example.py  # (v0.2) 每日报告示例
+├── docs/               # 文档
+│   ├── v0.2-features.md       # (v0.2) 功能文档
+│   └── v0.2-quickstart.md     # (v0.2) 快速入门
 ├── logs/               # 日志文件
 └── tests/              # 测试用例
 ```
@@ -113,8 +150,9 @@ github-sentinel/
 
 - [x] v0.0.1: 基础框架和核心功能
 - [x] v0.1.0: 交互式命令行与即时检查
-- [ ] v0.2.0: Web 控制台界面
-- [ ] v0.3.0: 更多通知渠道（Slack, Discord）
+- [x] v0.2.0: 每日进展追踪和 AI 报告生成
+- [ ] v0.3.0: Web 控制台界面
+- [ ] v0.4.0: 更多通知渠道（Slack, Discord）
 - [ ] v1.0.0: 生产就绪版本
 
 ## 🤝 贡献

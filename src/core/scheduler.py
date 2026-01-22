@@ -29,6 +29,7 @@ class Scheduler:
             daily_time = self.config.get("schedule.daily_time", "09:00")
             hour, minute = map(int, daily_time.split(':'))
             
+            # 添加更新仓库任务
             self.scheduler.add_job(
                 self.sentinel.update_repositories,
                 CronTrigger(hour=hour, minute=minute),
@@ -38,12 +39,26 @@ class Scheduler:
             )
             logger.info(f"已设置每日更新任务: {daily_time}")
             
+            # 添加生成每日报告任务（在更新后30分钟执行）
+            report_hour = hour if minute < 30 else (hour + 1) % 24
+            report_minute = (minute + 30) % 60
+            
+            self.scheduler.add_job(
+                self.sentinel.generate_daily_reports,
+                CronTrigger(hour=report_hour, minute=report_minute),
+                id='daily_report',
+                name='每日报告生成任务',
+                replace_existing=True
+            )
+            logger.info(f"已设置每日报告生成任务: {report_hour:02d}:{report_minute:02d}")
+            
         elif interval == "weekly":
             # 每周任务
             weekly_day = self.config.get("schedule.weekly_day", 0)  # 0 = Monday
             weekly_time = self.config.get("schedule.weekly_time", "09:00")
             hour, minute = map(int, weekly_time.split(':'))
             
+            # 添加更新仓库任务
             self.scheduler.add_job(
                 self.sentinel.update_repositories,
                 CronTrigger(day_of_week=weekly_day, hour=hour, minute=minute),
@@ -52,6 +67,19 @@ class Scheduler:
                 replace_existing=True
             )
             logger.info(f"已设置每周更新任务: 星期{weekly_day} {weekly_time}")
+            
+            # 添加生成每周报告任务（在更新后30分钟执行）
+            report_hour = hour if minute < 30 else (hour + 1) % 24
+            report_minute = (minute + 30) % 60
+            
+            self.scheduler.add_job(
+                self.sentinel.generate_daily_reports,
+                CronTrigger(day_of_week=weekly_day, hour=report_hour, minute=report_minute),
+                id='weekly_report',
+                name='每周报告生成任务',
+                replace_existing=True
+            )
+            logger.info(f"已设置每周报告生成任务: 星期{weekly_day} {report_hour:02d}:{report_minute:02d}")
         
         else:
             logger.warning(f"未知的调度间隔: {interval}，使用默认每日任务")

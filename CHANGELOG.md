@@ -1,5 +1,96 @@
 # 变更日志
 
+## [0.2.1] - 2026-01-22
+
+### 重大变更
+- 🔄 **存储系统迁移**: 从 SQLite 迁移到 JSON 文件存储
+  - 移除 `sqlalchemy` 依赖，使用轻量级 JSON 文件
+  - 数据文件：`data/sentinel.json`
+  - 提供迁移脚本：`migrate_to_json.py`
+  - 更简单、更易于备份和版本控制
+
+### 新增
+- 📅 **定时报告生成任务**
+  - 调度器自动生成每日/每周报告
+  - 在更新仓库后 30 分钟自动执行
+  - 支持批量处理所有订阅的仓库
+  
+- 🛠️ **迁移工具**
+  - `migrate_to_json.py`: SQLite 到 JSON 的数据迁移脚本
+  - `MIGRATION.md`: 完整的迁移指南和文档
+  
+- 🎨 **CLI 模块化**
+  - 新增 `src/cli/` 模块
+  - `subscription_commands.py`: 订阅管理命令
+  - `interactive_shell.py`: 交互式 Shell 界面
+
+### 改进
+- ⚡ 简化依赖：移除重量级数据库依赖
+- 📦 更小的安装包体积
+- 🔍 更易于调试和数据检查
+- 📝 完善的测试覆盖（8/8 测试通过）
+
+### 配置变更
+```yaml
+database:
+  type: "json"  # 之前: "sqlite"
+  path: "data/sentinel.json"  # 之前: "data/sentinel.db"
+```
+
+### 迁移说明
+如果您从 v0.2 升级，请运行：
+```bash
+python migrate_to_json.py
+```
+
+## [0.2] - 2026-01-18
+
+### 新增
+- 📊 **每日进展模块**
+  - `get_daily_issues()`: 获取指定日期的 Issues 列表
+  - `get_daily_pull_requests()`: 获取指定日期的 Pull Requests 列表
+  - `export_daily_progress()`: 将每日进展导出为结构化的 Markdown 文件
+  - 文件命名格式：`{项目名称}_{日期}.md`
+  - 包含完整的元信息：状态、作者、标签、代码变更统计等
+  - 自动区分新增和更新的内容
+  
+- 🤖 **AI 报告生成模块**
+  - `generate_daily_report()`: 读取每日进展，使用 AI 生成正式报告
+  - `batch_generate_reports()`: 批量生成多个仓库的报告
+  - 支持 GPT-4 和 Claude 进行智能分析
+  - 生成正式、专业的项目报告
+  - 包含项目概览、核心进展、Issues/PR 分析、活跃度评估等
+  
+- 📁 **新增目录结构**
+  - `data/daily_progress/`: 存储每日进展 Markdown 文件
+  - `data/reports/`: 存储 AI 生成的报告
+  - `examples/daily_report_example.py`: 功能使用示例
+  - `docs/v0.2-features.md`: 详细功能文档
+  
+- 🧪 **测试覆盖**
+  - 添加 v0.2 功能的单元测试
+  - 添加集成测试验证完整工作流程
+
+### 改进
+- 📝 优化 Markdown 输出格式，增强可读性
+- 🎯 AI 提示词优化，生成更专业的报告内容
+- 📈 增加统计信息和数据分析
+- 🔍 改进错误处理和日志记录
+
+### Release Notes (English)
+
+**New Features**
+- 📊 **Daily Progress Module**: Track and export daily Issues and PRs to Markdown
+- 🤖 **AI Report Generation**: Generate professional reports using GPT-4/Claude
+- 📁 **Data Organization**: New directory structure for progress and reports
+- 🧪 **Test Coverage**: Unit and integration tests for v0.2 features
+
+**Improvements**
+- Enhanced Markdown output formatting
+- Optimized AI prompts for better report quality
+- Added comprehensive statistics and analysis
+- Improved error handling and logging
+
 ## [0.1] - 2026-01-18
 
 ### 新增
