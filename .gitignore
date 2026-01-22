@@ -107,10 +107,7 @@ venv.bak/
 
 # Project specific
 config/config.yaml
-data/*.db
-data/*.sqlite
-data/daily_progress/*.md
-data/reports/*.md
+data/
 logs/*.log
 *.log
 

@@ -314,13 +314,16 @@ class ReportGenerator:
         return '\n'.join(report_lines)
     
     def generate_daily_report(self, repo_name: str, progress_file: str, 
-                             output_dir: str = "data/reports") -> str:
+                             output_dir: str = "data/reports", 
+                             start_date: datetime = None, end_date: datetime = None) -> str:
         """读取每日进展文件，生成正式的项目每日报告
         
         Args:
             repo_name: 仓库名称
             progress_file: 每日进展的 markdown 文件路径
             output_dir: 报告输出目录
+            start_date: 开始日期
+            end_date: 结束日期
         
         Returns:
             生成的报告文件路径
@@ -341,14 +344,25 @@ class ReportGenerator:
             logger.warning("未配置 AI，将使用原始进展文件作为报告")
             report_content = progress_content
         
-        # 创建输出目录
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 生成报告文件名
+        # 创建项目特定的输出目录
         repo_safe_name = repo_name.replace('/', '_')
-        date_str = datetime.now().strftime('%Y-%m-%d')
-        report_filename = f"{repo_safe_name}_report_{date_str}.md"
-        report_filepath = os.path.join(output_dir, report_filename)
+        project_dir = os.path.join(output_dir, repo_safe_name)
+        os.makedirs(project_dir, exist_ok=True)
+        
+        # 生成报告文件名（包含日期范围）
+        if start_date and end_date:
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            if start_str == end_str:
+                date_suffix = start_str
+            else:
+                date_suffix = f"{start_str}_to_{end_str}"
+        else:
+            # 默认使用当前日期
+            date_suffix = datetime.now().strftime('%Y-%m-%d')
+        
+        report_filename = f"{repo_safe_name}_report_{date_suffix}.md"
+        report_filepath = os.path.join(project_dir, report_filename)
         
         # 写入报告
         with open(report_filepath, 'w', encoding='utf-8') as f:

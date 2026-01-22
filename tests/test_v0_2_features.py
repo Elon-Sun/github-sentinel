@@ -6,7 +6,7 @@ v0.2 功能测试
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import tempfile
 
@@ -25,12 +25,10 @@ class TestDailyProgress(unittest.TestCase):
     @patch('src.core.github_client.Github')
     def test_get_daily_issues(self, mock_github):
         """测试获取每日 Issues"""
-        # Mock GitHub API 响应
-        mock_repo = MagicMock()
+        # Mock GitHub Search API 响应
         mock_issue = MagicMock()
-        mock_issue.pull_request = None
-        mock_issue.created_at = datetime(2026, 1, 18, 10, 0)
-        mock_issue.updated_at = datetime(2026, 1, 18, 10, 0)
+        mock_issue.created_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
+        mock_issue.updated_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
         mock_issue.number = 1
         mock_issue.title = "Test Issue"
         mock_issue.state = "open"
@@ -40,8 +38,14 @@ class TestDailyProgress(unittest.TestCase):
         mock_issue.body = "Test body"
         mock_issue.html_url = "https://github.com/test/repo/issues/1"
         
-        mock_repo.get_issues.return_value = [mock_issue]
-        mock_github.return_value.get_repo.return_value = mock_repo
+        # Mock search_issues to return issues only for created query (not updated)
+        def mock_search_issues(query, **kwargs):
+            if "created:" in query and "is:issue" in query and "-created:" not in query:
+                return [mock_issue]  # Return for created query
+            else:
+                return []  # Return empty for updated query
+        
+        mock_github.return_value.search_issues.side_effect = mock_search_issues
         
         # 创建客户端并测试
         client = GitHubClient("test_token")
@@ -56,25 +60,34 @@ class TestDailyProgress(unittest.TestCase):
     @patch('src.core.github_client.Github')
     def test_get_daily_pull_requests(self, mock_github):
         """测试获取每日 Pull Requests"""
-        # Mock GitHub API 响应
-        mock_repo = MagicMock()
+        # Mock GitHub Search API 响应
         mock_pr = MagicMock()
-        mock_pr.created_at = datetime(2026, 1, 18, 10, 0)
-        mock_pr.updated_at = datetime(2026, 1, 18, 10, 0)
+        mock_pr.created_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
+        mock_pr.updated_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
         mock_pr.number = 1
         mock_pr.title = "Test PR"
         mock_pr.state = "open"
         mock_pr.user.login = "testuser"
-        mock_pr.merged = False
-        mock_pr.merged_at = None
         mock_pr.body = "Test body"
-        mock_pr.additions = 10
-        mock_pr.deletions = 5
-        mock_pr.changed_files = 2
         mock_pr.html_url = "https://github.com/test/repo/pull/1"
         
-        mock_repo.get_pulls.return_value = [mock_pr]
-        mock_github.return_value.get_repo.return_value = mock_repo
+        # Mock the as_pull_request() method
+        mock_full_pr = MagicMock()
+        mock_full_pr.merged = False
+        mock_full_pr.merged_at = None
+        mock_full_pr.additions = 10
+        mock_full_pr.deletions = 5
+        mock_full_pr.changed_files = 2
+        mock_pr.as_pull_request.return_value = mock_full_pr
+        
+        # Mock search_issues to return PRs only for created query (not updated)
+        def mock_search_issues(query, **kwargs):
+            if "created:" in query and "is:pr" in query and "-created:" not in query:
+                return [mock_pr]  # Return for created query
+            else:
+                return []  # Return empty for updated query
+        
+        mock_github.return_value.search_issues.side_effect = mock_search_issues
         
         # 创建客户端并测试
         client = GitHubClient("test_token")
@@ -229,15 +242,18 @@ class TestReportGeneration(unittest.TestCase):
 class TestIntegration(unittest.TestCase):
     """集成测试"""
     
+    def setUp(self):
+        """设置测试环境"""
+        self.repo_name = "test/repo"
+        self.test_date = datetime(2026, 1, 18)
+    
     @patch('src.core.github_client.Github')
     def test_full_workflow(self, mock_github):
         """测试完整工作流程"""
-        # Mock GitHub API
-        mock_repo = MagicMock()
+        # Mock GitHub Search API
         mock_issue = MagicMock()
-        mock_issue.pull_request = None
-        mock_issue.created_at = datetime(2026, 1, 18, 10, 0)
-        mock_issue.updated_at = datetime(2026, 1, 18, 10, 0)
+        mock_issue.created_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
+        mock_issue.updated_at = datetime(2026, 1, 18, 10, 0, tzinfo=timezone.utc)
         mock_issue.number = 1
         mock_issue.title = "Integration Test Issue"
         mock_issue.state = "open"
@@ -247,9 +263,14 @@ class TestIntegration(unittest.TestCase):
         mock_issue.body = "Test body"
         mock_issue.html_url = "https://github.com/test/repo/issues/1"
         
-        mock_repo.get_issues.return_value = [mock_issue]
-        mock_repo.get_pulls.return_value = []
-        mock_github.return_value.get_repo.return_value = mock_repo
+        # Mock search_issues to return issues for created query and empty for others
+        def mock_search_issues(query, **kwargs):
+            if "created:" in query and "is:issue" in query and "-created:" not in query:
+                return [mock_issue]  # Return issues for created query
+            else:
+                return []  # Return empty for updated queries and PR queries
+        
+        mock_github.return_value.search_issues.side_effect = mock_search_issues
         
         # Mock 配置
         mock_config = Mock()
@@ -302,6 +323,75 @@ class TestIntegration(unittest.TestCase):
                 with open(report_file, 'r', encoding='utf-8') as f:
                     report_content = f.read()
                     self.assertIn("test/repo", report_content)
+    
+    @patch('src.core.github_client.Github')
+    def test_custom_date_range_fetching(self, mock_github):
+        """测试自定义日期范围获取功能"""
+        # Mock GitHub Search API 响应
+        mock_issue = MagicMock()
+        mock_issue.created_at = datetime(2026, 1, 13, 10, 0, tzinfo=timezone.utc)  # 不在范围内
+        mock_issue.updated_at = datetime(2026, 1, 16, 10, 0, tzinfo=timezone.utc)  # 在范围内
+        mock_issue.number = 1
+        mock_issue.title = "Test Issue"
+        mock_issue.state = "open"
+        mock_issue.user.login = "testuser"
+        mock_issue.comments = 0
+        mock_issue.labels = []
+        mock_issue.body = "Test body"
+        mock_issue.html_url = "https://github.com/test/repo/issues/1"
+        
+        # Mock search_issues to return issues only for updated query (not created)
+        def mock_search_issues(query, **kwargs):
+            if "updated:" in query and "is:issue" in query and "-created:" in query:
+                return [mock_issue]  # Return for updated query
+            else:
+                return []  # Return empty for created query
+        
+        mock_github.return_value.search_issues.side_effect = mock_search_issues
+        
+        # 创建客户端并测试日期范围
+        client = GitHubClient("test_token")
+        start_date = datetime(2026, 1, 14)
+        end_date = datetime(2026, 1, 17)
+        
+        issues = client.get_daily_issues(self.repo_name, start_date=start_date, end_date=end_date)
+        
+        # 验证结果
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]['number'], 1)
+        self.assertTrue(issues[0]['is_updated'])  # 应该标记为更新
+    
+    @patch('src.core.github_client.Github')
+    def test_export_with_date_range_filename(self, mock_github):
+        """测试日期范围文件名导出"""
+        client = GitHubClient("test_token")
+        
+        # 准备测试数据
+        issues = []
+        prs = []
+        start_date = datetime(2026, 1, 14)
+        end_date = datetime(2026, 1, 17)
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 导出进展
+            progress_file = client.export_daily_progress(
+                self.repo_name,
+                issues,
+                prs,
+                start_date=start_date,
+                end_date=end_date,
+                output_dir=temp_dir
+            )
+            
+            # 验证文件名包含日期范围
+            expected_filename = "test_repo_2026-01-14_to_2026-01-17.md"
+            self.assertTrue(progress_file.endswith(expected_filename))
+            
+            # 验证项目文件夹结构
+            self.assertIn("test_repo", progress_file)
+            
+            # 验证文件存在
+            self.assertTrue(os.path.exists(progress_file))
 
 
 if __name__ == '__main__':

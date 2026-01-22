@@ -4,6 +4,7 @@
 
 import click
 import sys
+from datetime import datetime, timedelta
 from rich.console import Console
 from loguru import logger
 from pathlib import Path
@@ -173,6 +174,40 @@ class GitHubSentinel:
         
         logger.info(f"每日报告生成完成 - 成功: {success_count}, 失败: {fail_count}")
         return success_count, fail_count
+    
+    def generate_custom_range_report(self, repo_name: str, start_date: datetime, 
+                                   end_date: datetime = None) -> str:
+        """为指定仓库生成自定义日期范围的报告
+        
+        Args:
+            repo_name: 仓库名称
+            start_date: 开始日期
+            end_date: 结束日期（可选，默认 start_date + 1天）
+        
+        Returns:
+            生成的报告文件路径
+        """
+        if end_date is None:
+            end_date = start_date + timedelta(days=1)
+            
+        logger.info(f"正在生成 {repo_name} 从 {start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')} 的报告...")
+        
+        # 获取指定日期范围的 Issues 和 PRs
+        issues = self.github_client.get_daily_issues(repo_name, start_date=start_date, end_date=end_date)
+        pull_requests = self.github_client.get_daily_pull_requests(repo_name, start_date=start_date, end_date=end_date)
+        
+        # 导出进展
+        progress_file = self.github_client.export_daily_progress(
+            repo_name, issues, pull_requests, start_date=start_date, end_date=end_date
+        )
+        
+        # 生成 AI 报告
+        report_file = self.report_generator.generate_daily_report(
+            repo_name, progress_file, start_date=start_date, end_date=end_date
+        )
+        
+        logger.info(f"✓ {repo_name} 自定义范围报告已生成: {report_file}")
+        return report_file
 
 
 @click.group()
@@ -302,6 +337,23 @@ def init():
         console.print("\n[green]GitHub Sentinel 初始化完成！[/green]")
     except Exception as e:
         console.print(f"[red]✗[/red] 初始化失败: {e}")
+
+@cli.command("report")
+@click.argument("repo_name")
+@click.option("--start-date", "-s", help="开始日期 (YYYY-MM-DD)", required=True)
+@click.option("--end-date", "-e", help="结束日期 (YYYY-MM-DD)", default=None)
+def generate_custom_report(repo_name: str, start_date: str, end_date: str = None):
+    """为指定仓库生成自定义日期范围的报告"""
+    try:
+        from datetime import datetime
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d") if end_date else start + timedelta(days=1)
+        
+        sentinel = GitHubSentinel()
+        report_file = sentinel.generate_custom_range_report(repo_name, start, end)
+        console.print(f"[green]✓[/green] 报告已生成: {report_file}")
+    except Exception as e:
+        console.print(f"[red]✗[/red] 生成报告失败: {e}")
 
 if __name__ == "__main__":
     cli()

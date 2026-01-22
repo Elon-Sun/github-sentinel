@@ -196,130 +196,211 @@ class GitHubClient:
             }
         }
     
-    def get_daily_issues(self, repo_name: str, date: datetime = None) -> List[Dict]:
-        """获取指定日期的 Issues 列表
+    def get_daily_issues(self, repo_name: str, date: datetime = None, 
+                        start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
+        """获取指定日期或日期范围的 Issues 列表
         
         Args:
             repo_name: 仓库名称，格式为 owner/repo
-            date: 目标日期，默认为当天
+            date: 目标日期（向后兼容），默认为当天
+            start_date: 开始日期（优先级高于 date）
+            end_date: 结束日期（优先级高于 date）
         
         Returns:
             Issues 列表
         """
-        if date is None:
-            date = datetime.now(timezone.utc)
+        # 处理日期参数
+        if start_date and end_date:
+            # 使用日期范围
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+        elif date:
+            # 向后兼容：使用单个日期
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
+        else:
+            # 默认当天
+            now = datetime.now(timezone.utc)
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
         
-        # 获取指定日期的起始和结束时间（使用 UTC 时区）
-        if date.tzinfo is None:
-            date = date.replace(tzinfo=timezone.utc)
-        start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date + timedelta(days=1)
-        
-        logger.info(f"正在获取仓库 {repo_name} 在 {date.strftime('%Y-%m-%d')} 的 Issues...")
+        date_range_str = f"{start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}"
+        logger.info(f"正在获取仓库 {repo_name} 在 {date_range_str} 的 Issues...")
         
         try:
-            repo = self.github.get_repo(repo_name)
             issues = []
             
-            # 获取在指定日期更新或创建的 Issues
-            for issue in repo.get_issues(state='all', sort='updated', direction='desc'):
-                # 跳过 Pull Requests
-                if issue.pull_request:
-                    continue
-                
-                # 检查是否在目标日期范围内创建或更新
-                created_in_range = start_date <= issue.created_at < end_date
-                updated_in_range = start_date <= issue.updated_at < end_date
-                
-                if created_in_range or updated_in_range:
-                    issues.append({
-                        'number': issue.number,
-                        'title': issue.title,
-                        'state': issue.state,
-                        'author': issue.user.login if issue.user else 'Unknown',
-                        'created_at': issue.created_at.isoformat(),
-                        'updated_at': issue.updated_at.isoformat(),
-                        'comments': issue.comments,
-                        'labels': [label.name for label in issue.labels],
-                        'body': issue.body or '',
-                        'url': issue.html_url,
-                        'is_new': created_in_range  # 标记是否为新创建
-                    })
-                
-                # 如果已经过了目标日期，停止查询
-                if issue.updated_at < start_date:
+            # 使用 GitHub Search API 进行日期范围查询
+            # 搜索在指定日期范围内创建或更新的 Issues
+            start_date_str = start_date.strftime('%Y-%m-%d')
+            end_date_str = end_date.strftime('%Y-%m-%d')
+            
+            # 查询新创建的 Issues
+            created_query = f"repo:{repo_name} is:issue created:{start_date_str}..{end_date_str}"
+            created_issues = self.github.search_issues(created_query, sort='created', order='desc')
+            
+            # 查询更新的 Issues（排除已包含的新创建的）
+            updated_query = f"repo:{repo_name} is:issue updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
+            updated_issues = self.github.search_issues(updated_query, sort='updated', order='desc')
+            
+            # 处理新创建的 Issues
+            for issue in created_issues:
+                if len(issues) >= 100:  # 限制总数
                     break
-                    
-                # 限制数量
-                if len(issues) >= 100:
+                issues.append({
+                    'number': issue.number,
+                    'title': issue.title,
+                    'state': issue.state,
+                    'author': issue.user.login if issue.user else 'Unknown',
+                    'created_at': issue.created_at.isoformat(),
+                    'updated_at': issue.updated_at.isoformat(),
+                    'comments': issue.comments,
+                    'labels': [label.name for label in issue.labels],
+                    'body': issue.body or '',
+                    'url': issue.html_url,
+                    'is_new': True,  # 新创建
+                    'is_updated': False
+                })
+            
+            # 处理更新的 Issues
+            for issue in updated_issues:
+                if len(issues) >= 100:  # 限制总数
                     break
+                issues.append({
+                    'number': issue.number,
+                    'title': issue.title,
+                    'state': issue.state,
+                    'author': issue.user.login if issue.user else 'Unknown',
+                    'created_at': issue.created_at.isoformat(),
+                    'updated_at': issue.updated_at.isoformat(),
+                    'comments': issue.comments,
+                    'labels': [label.name for label in issue.labels],
+                    'body': issue.body or '',
+                    'url': issue.html_url,
+                    'is_new': False,
+                    'is_updated': True  # 更新
+                })
             
             logger.info(f"获取到 {len(issues)} 个 Issues")
             return issues
+            
+        except Exception as e:
+            logger.error(f"获取 Issues 失败: {e}")
+            return []
             
         except GithubException as e:
             logger.error(f"获取仓库 {repo_name} 的 Issues 失败: {e}")
             raise
     
-    def get_daily_pull_requests(self, repo_name: str, date: datetime = None) -> List[Dict]:
-        """获取指定日期的 Pull Requests 列表
+    def get_daily_pull_requests(self, repo_name: str, date: datetime = None,
+                               start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
+        """获取指定日期或日期范围的 Pull Requests 列表
         
         Args:
             repo_name: 仓库名称，格式为 owner/repo
-            date: 目标日期，默认为当天
+            date: 目标日期（向后兼容），默认为当天
+            start_date: 开始日期（优先级高于 date）
+            end_date: 结束日期（优先级高于 date）
         
         Returns:
             Pull Requests 列表
         """
-        if date is None:
-            date = datetime.now(timezone.utc)
+        # 处理日期参数
+        if start_date and end_date:
+            # 使用日期范围
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+        elif date:
+            # 向后兼容：使用单个日期
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
+        else:
+            # 默认当天
+            now = datetime.now(timezone.utc)
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
         
-        # 获取指定日期的起始和结束时间（使用 UTC 时区）
-        if date.tzinfo is None:
-            date = date.replace(tzinfo=timezone.utc)
-        start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date + timedelta(days=1)
-        
-        logger.info(f"正在获取仓库 {repo_name} 在 {date.strftime('%Y-%m-%d')} 的 Pull Requests...")
+        date_range_str = f"{start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}"
+        logger.info(f"正在获取仓库 {repo_name} 在 {date_range_str} 的 Pull Requests...")
         
         try:
-            repo = self.github.get_repo(repo_name)
             prs = []
             
-            # 获取在指定日期更新或创建的 PRs
-            for pr in repo.get_pulls(state='all', sort='updated', direction='desc'):
-                # 检查是否在目标日期范围内创建或更新
-                created_in_range = start_date <= pr.created_at < end_date
-                updated_in_range = start_date <= pr.updated_at < end_date
-                
-                if created_in_range or updated_in_range:
-                    prs.append({
-                        'number': pr.number,
-                        'title': pr.title,
-                        'state': pr.state,
-                        'author': pr.user.login if pr.user else 'Unknown',
-                        'created_at': pr.created_at.isoformat(),
-                        'updated_at': pr.updated_at.isoformat(),
-                        'merged': pr.merged,
-                        'merged_at': pr.merged_at.isoformat() if pr.merged_at else None,
-                        'body': pr.body or '',
-                        'additions': pr.additions,
-                        'deletions': pr.deletions,
-                        'changed_files': pr.changed_files,
-                        'url': pr.html_url,
-                        'is_new': created_in_range  # 标记是否为新创建
-                    })
-                
-                # 如果已经过了目标日期，停止查询
-                if pr.updated_at < start_date:
+            # 使用 GitHub Search API 进行日期范围查询
+            # 搜索在指定日期范围内创建或更新的 PRs
+            start_date_str = start_date.strftime('%Y-%m-%d')
+            end_date_str = end_date.strftime('%Y-%m-%d')
+            
+            # 查询新创建的 PRs
+            created_query = f"repo:{repo_name} is:pr created:{start_date_str}..{end_date_str}"
+            created_prs = self.github.search_issues(created_query, sort='created', order='desc')
+            
+            # 查询更新的 PRs（排除已包含的新创建的）
+            updated_query = f"repo:{repo_name} is:pr updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
+            updated_prs = self.github.search_issues(updated_query, sort='updated', order='desc')
+            
+            # 处理新创建的 PRs
+            for pr in created_prs:
+                if len(prs) >= 100:  # 限制总数
                     break
-                    
-                # 限制数量
-                if len(prs) >= 100:
+                # 获取完整的 PR 对象以获取更多信息
+                full_pr = pr.as_pull_request()
+                prs.append({
+                    'number': pr.number,
+                    'title': pr.title,
+                    'state': pr.state,
+                    'author': pr.user.login if pr.user else 'Unknown',
+                    'created_at': pr.created_at.isoformat(),
+                    'updated_at': pr.updated_at.isoformat(),
+                    'merged': full_pr.merged if full_pr else False,
+                    'merged_at': full_pr.merged_at.isoformat() if full_pr and full_pr.merged_at else None,
+                    'body': pr.body or '',
+                    'additions': full_pr.additions if full_pr else 0,
+                    'deletions': full_pr.deletions if full_pr else 0,
+                    'changed_files': full_pr.changed_files if full_pr else 0,
+                    'url': pr.html_url,
+                    'is_new': True,  # 新创建
+                    'is_updated': False
+                })
+            
+            # 处理更新的 PRs
+            for pr in updated_prs:
+                if len(prs) >= 100:  # 限制总数
                     break
+                # 获取完整的 PR 对象以获取更多信息
+                full_pr = pr.as_pull_request()
+                prs.append({
+                    'number': pr.number,
+                    'title': pr.title,
+                    'state': pr.state,
+                    'author': pr.user.login if pr.user else 'Unknown',
+                    'created_at': pr.created_at.isoformat(),
+                    'updated_at': pr.updated_at.isoformat(),
+                    'merged': full_pr.merged if full_pr else False,
+                    'merged_at': full_pr.merged_at.isoformat() if full_pr and full_pr.merged_at else None,
+                    'body': pr.body or '',
+                    'additions': full_pr.additions if full_pr else 0,
+                    'deletions': full_pr.deletions if full_pr else 0,
+                    'changed_files': full_pr.changed_files if full_pr else 0,
+                    'url': pr.html_url,
+                    'is_new': False,
+                    'is_updated': True  # 更新
+                })
             
             logger.info(f"获取到 {len(prs)} 个 Pull Requests")
             return prs
+            
+        except Exception as e:
+            logger.error(f"获取 Pull Requests 失败: {e}")
+            return []
             
         except GithubException as e:
             logger.error(f"获取仓库 {repo_name} 的 Pull Requests 失败: {e}")
@@ -327,6 +408,7 @@ class GitHubClient:
     
     def export_daily_progress(self, repo_name: str, issues: List[Dict], 
                              pull_requests: List[Dict], date: datetime = None,
+                             start_date: datetime = None, end_date: datetime = None,
                              output_dir: str = "data/daily_progress") -> str:
         """将每日进展导出为 Markdown 文件
         
@@ -334,26 +416,53 @@ class GitHubClient:
             repo_name: 仓库名称
             issues: Issues 列表
             pull_requests: Pull Requests 列表
-            date: 日期，默认为当天
+            date: 日期（向后兼容）
+            start_date: 开始日期
+            end_date: 结束日期
             output_dir: 输出目录
         
         Returns:
             导出的文件路径
         """
-        if date is None:
-            date = datetime.now()
+        # 处理日期参数
+        if start_date and end_date:
+            # 使用日期范围
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+        elif date:
+            # 向后兼容：使用单个日期
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            start_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
+        else:
+            # 默认当天
+            now = datetime.now(timezone.utc)
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + timedelta(days=1)
         
-        # 创建输出目录
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 生成文件名：repo_name_YYYY-MM-DD.md
+        # 创建项目特定的输出目录
         repo_safe_name = repo_name.replace('/', '_')
-        date_str = date.strftime('%Y-%m-%d')
-        filename = f"{repo_safe_name}_{date_str}.md"
-        filepath = os.path.join(output_dir, filename)
+        project_dir = os.path.join(output_dir, repo_safe_name)
+        os.makedirs(project_dir, exist_ok=True)
+        
+        # 生成文件名：包含日期范围
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        if start_str == end_str:
+            # 单日
+            filename = f"{repo_safe_name}_{start_str}.md"
+        else:
+            # 日期范围
+            filename = f"{repo_safe_name}_{start_str}_to_{end_str}.md"
+        
+        filepath = os.path.join(project_dir, filename)
         
         # 生成 Markdown 内容
-        content = self._generate_progress_markdown(repo_name, issues, pull_requests, date)
+        content = self._generate_progress_markdown(repo_name, issues, pull_requests, start_date, end_date)
         
         # 写入文件
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -363,13 +472,25 @@ class GitHubClient:
         return filepath
     
     def _generate_progress_markdown(self, repo_name: str, issues: List[Dict], 
-                                    pull_requests: List[Dict], date: datetime) -> str:
+                                    pull_requests: List[Dict], start_date: datetime, 
+                                    end_date: datetime = None) -> str:
         """生成每日进展的 Markdown 内容"""
-        date_str = date.strftime('%Y-%m-%d')
+        if end_date is None:
+            end_date = start_date + timedelta(days=1)
+            
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        if start_str == end_str:
+            date_display = start_str
+            period_text = f"**日期**: {date_display}"
+        else:
+            date_display = f"{start_str} 到 {end_str}"
+            period_text = f"**日期范围**: {date_display}"
         
         content = f"""# {repo_name} 每日进展
 
-**日期**: {date_str}  
+{period_text}  
 **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 ---
@@ -378,13 +499,13 @@ class GitHubClient:
 
 - **Issues 总数**: {len(issues)}
   - 新增: {sum(1 for i in issues if i.get('is_new'))}
-  - 更新: {sum(1 for i in issues if not i.get('is_new'))}
+  - 更新: {sum(1 for i in issues if i.get('is_updated') and not i.get('is_new'))}
   - 开放: {sum(1 for i in issues if i.get('state') == 'open')}
   - 关闭: {sum(1 for i in issues if i.get('state') == 'closed')}
 
 - **Pull Requests 总数**: {len(pull_requests)}
   - 新增: {sum(1 for pr in pull_requests if pr.get('is_new'))}
-  - 更新: {sum(1 for pr in pull_requests if not pr.get('is_new'))}
+  - 更新: {sum(1 for pr in pull_requests if pr.get('is_updated') and not pr.get('is_new'))}
   - 开放: {sum(1 for pr in pull_requests if pr.get('state') == 'open')}
   - 已合并: {sum(1 for pr in pull_requests if pr.get('merged'))}
   - 已关闭: {sum(1 for pr in pull_requests if pr.get('state') == 'closed' and not pr.get('merged'))}
