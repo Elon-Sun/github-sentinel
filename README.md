@@ -8,11 +8,12 @@
 
 ## ✨ 特性
 
+- 🌐 **Web 图形界面** (v0.4): 基于 Gradio 的友好图形化界面
 - 🔔 **智能订阅管理**: 轻松订阅和管理多个 GitHub 仓库
 - 📊 **每日进展追踪** (v0.2): 自动获取并导出每日 Issues 和 Pull Requests
 - 📅 **自定义日期范围查询** (v0.3): 支持任意时间段的数据查询和报告生成
 - 📁 **项目文件夹组织** (v0.3): 报告按项目自动分组存放
-- 🤖 **AI 驱动报告**: 使用 GPT-4/Claude 自动生成专业的项目报告
+- 🤖 **AI 驱动报告**: 使用 GPT-4/Claude/DeepSeek 自动生成专业的项目报告
 - ⏰ **定时获取**: 支持每日/每周自动获取仓库更新
 - 📬 **多渠道通知**: 支持邮件、Webhook 等多种通知方式
 - 📈 **趋势分析**: 跟踪项目活跃度和发展趋势
@@ -60,6 +61,28 @@ notification:
 schedule:
   interval: "daily"  # daily 或 weekly
 ```
+
+### Web 界面（v0.4 推荐）
+
+```bash
+# 启动 Web 界面
+python -m src.main web
+
+# 或使用快速启动脚本
+python run_web.py
+
+# 自定义端口
+python -m src.main web --port 8080
+
+# 创建公共分享链接（用于远程访问）
+python -m src.main web --share
+```
+
+访问 http://localhost:7860 即可使用图形化界面，包含：
+- 📚 **订阅管理**: 添加、移除、查看订阅
+- 🔎 **即时检查**: 快速查看任意仓库更新
+- 📅 **自定义报告**: 生成指定日期范围的详细报告
+- ℹ️ **仓库信息**: 查看仓库统计数据
 
 ### 交互式模式（推荐）
 
@@ -157,7 +180,11 @@ github-sentinel/
 │   ├── core/           # 核心功能模块
 │   │   └── github_client.py  # GitHub API (v0.3: 优化为搜索 API)
 │   ├── ai/             # AI 报告生成
-│   │   └── report_generator.py  # (v0.3: 支持项目文件夹组织)
+│   │   ├── report_generator.py  # (v0.4: 重构代码结构)
+│   │   ├── ai_client.py         # (v0.4: AI 客户端封装)
+│   │   └── prompts.py           # (v0.4: Prompt 模板管理)
+│   ├── web/            # (v0.4) Web 界面
+│   │   └── gradio_ui.py         # Gradio Web UI
 │   ├── notifier/       # 通知系统
 │   └── storage/        # 数据存储
 ├── data/               # 数据文件
@@ -165,12 +192,9 @@ github-sentinel/
 │   │   └── {project}/  # (v0.3) 按项目分组
 │   └── reports/        # (v0.2/v0.3) AI 生成的报告
 │       └── {project}/  # (v0.3) 按项目分组
+├── run_web.py          # (v0.4) Web 界面快速启动脚本
 ├── examples/           # 使用示例
-│   └── daily_report_example.py  # (v0.2) 每日报告示例
 ├── docs/               # 文档
-│   ├── v0.2-features.md       # (v0.2) 功能文档
-│   ├── v0.2-quickstart.md     # (v0.2) 快速入门
-│   └── v0.3-date-range.md     # (v0.3) 日期范围查询文档
 ├── logs/               # 日志文件
 └── tests/              # 测试用例
 ```
@@ -179,7 +203,8 @@ github-sentinel/
 
 - **Python 3.8+**: 核心开发语言
 - **PyGithub**: GitHub API 交互 (v0.3: 优化为搜索 API)
-- **OpenAI/Anthropic**: AI 报告生成
+- **Gradio**: Web UI 框架 (v0.4: 图形化界面)
+- **OpenAI/Anthropic/DeepSeek**: AI 报告生成
 - **APScheduler**: 任务调度
 - **JSON**: 轻量级数据存储 (v0.2: 从 SQLite 迁移)
 - **Jinja2**: 报告模板生成
@@ -190,8 +215,9 @@ github-sentinel/
 - [x] v0.1.0: 交互式命令行与即时检查
 - [x] v0.2.0: 每日进展追踪和 AI 报告生成
 - [x] v0.3.0: 自定义日期范围查询和项目文件夹组织
-- [ ] v0.4.0: Web 控制台界面
-- [ ] v0.5.0: 更多通知渠道（Slack, Discord）
+- [x] v0.4.0: Gradio Web 界面和 AI 模块重构
+- [ ] v0.5.0: 更多通知渠道（Slack, Discord, 钉钉）
+- [ ] v0.6.0: 趋势分析和可视化图表
 - [ ] v1.0.0: 生产就绪版本
 
 ## 🤝 贡献

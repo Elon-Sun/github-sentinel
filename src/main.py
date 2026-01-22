@@ -355,5 +355,30 @@ def generate_custom_report(repo_name: str, start_date: str, end_date: str = None
     except Exception as e:
         console.print(f"[red]✗[/red] 生成报告失败: {e}")
 
+@cli.command("web")
+@click.option("--port", "-p", default=7860, help="Web 服务端口")
+@click.option("--host", "-h", default="0.0.0.0", help="Web 服务主机地址")
+@click.option("--share", is_flag=True, help="创建公共分享链接")
+def start_web(port: int, host: str, share: bool):
+    """启动 Web 界面"""
+    try:
+        from src.web.gradio_ui import GitHubSentinelUI
+        
+        console.print("[cyan]🌐 正在启动 GitHub Sentinel Web 界面...[/cyan]")
+        console.print(f"[green]📍 访问地址: http://{host}:{port}[/green]")
+        
+        ui = GitHubSentinelUI()
+        ui.launch(
+            server_name=host,
+            server_port=port,
+            share=share,
+            show_error=True
+        )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]正在停止 Web 服务...[/yellow]")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Web 服务启动失败: {e}")
+        console.print("[yellow]提示: 请确保已安装 gradio: pip install gradio[/yellow]")
+
 if __name__ == "__main__":
     cli()

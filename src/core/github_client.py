@@ -48,7 +48,11 @@ class GitHubClient:
             return False
     
     def fetch_repository_updates(self, repo_name: str, days: int = 7) -> Dict:
-        """获取仓库更新信息
+        """获取仓库更新信息（遗留方法，用于 CLI）
+        
+        注意: 对于 AI 报告生成，推荐直接使用 get_daily_issues() 和 
+        get_daily_pull_requests() 方法，它们使用 GitHub Search API 更高效
+        且与日期范围严格一致。
         
         Args:
             repo_name: 仓库名称
@@ -198,7 +202,9 @@ class GitHubClient:
     
     def get_daily_issues(self, repo_name: str, date: datetime = None, 
                         start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
-        """获取指定日期或日期范围的 Issues 列表
+        """获取指定日期或日期范围的已关闭 Issues 列表
+        
+        注意：只返回已关闭（closed）状态的 Issues
         
         Args:
             repo_name: 仓库名称，格式为 owner/repo
@@ -207,7 +213,7 @@ class GitHubClient:
             end_date: 结束日期（优先级高于 date）
         
         Returns:
-            Issues 列表
+            已关闭的 Issues 列表
         """
         # 处理日期参数
         if start_date and end_date:
@@ -239,12 +245,12 @@ class GitHubClient:
             start_date_str = start_date.strftime('%Y-%m-%d')
             end_date_str = end_date.strftime('%Y-%m-%d')
             
-            # 查询新创建的 Issues
-            created_query = f"repo:{repo_name} is:issue created:{start_date_str}..{end_date_str}"
+            # 查询新关闭的 Issues（只获取 closed 状态）
+            created_query = f"repo:{repo_name} is:issue is:closed created:{start_date_str}..{end_date_str}"
             created_issues = self.github.search_issues(created_query, sort='created', order='desc')
             
-            # 查询更新的 Issues（排除已包含的新创建的）
-            updated_query = f"repo:{repo_name} is:issue updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
+            # 查询更新并关闭的 Issues（排除已包含的新创建的）
+            updated_query = f"repo:{repo_name} is:issue is:closed updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
             updated_issues = self.github.search_issues(updated_query, sort='updated', order='desc')
             
             # 处理新创建的 Issues
@@ -298,7 +304,9 @@ class GitHubClient:
     
     def get_daily_pull_requests(self, repo_name: str, date: datetime = None,
                                start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
-        """获取指定日期或日期范围的 Pull Requests 列表
+        """获取指定日期或日期范围的已关闭 Pull Requests 列表
+        
+        注意：只返回已关闭（closed/merged）状态的 PRs
         
         Args:
             repo_name: 仓库名称，格式为 owner/repo
@@ -307,7 +315,7 @@ class GitHubClient:
             end_date: 结束日期（优先级高于 date）
         
         Returns:
-            Pull Requests 列表
+            已关闭的 Pull Requests 列表
         """
         # 处理日期参数
         if start_date and end_date:
@@ -339,12 +347,12 @@ class GitHubClient:
             start_date_str = start_date.strftime('%Y-%m-%d')
             end_date_str = end_date.strftime('%Y-%m-%d')
             
-            # 查询新创建的 PRs
-            created_query = f"repo:{repo_name} is:pr created:{start_date_str}..{end_date_str}"
+            # 查询新关闭的 PRs（只获取 closed/merged 状态）
+            created_query = f"repo:{repo_name} is:pr is:closed created:{start_date_str}..{end_date_str}"
             created_prs = self.github.search_issues(created_query, sort='created', order='desc')
             
-            # 查询更新的 PRs（排除已包含的新创建的）
-            updated_query = f"repo:{repo_name} is:pr updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
+            # 查询更新并关闭的 PRs（排除已包含的新创建的）
+            updated_query = f"repo:{repo_name} is:pr is:closed updated:{start_date_str}..{end_date_str} -created:{start_date_str}..{end_date_str}"
             updated_prs = self.github.search_issues(updated_query, sort='updated', order='desc')
             
             # 处理新创建的 PRs

@@ -38,14 +38,20 @@ class SubscriptionManager:
         logger.info(f"添加订阅成功: {repo_name} (ID: {subscription_id})")
         return subscription_id
     
-    def remove_subscription(self, repo_name: str):
-        """移除仓库订阅"""
+    def remove_subscription(self, repo_name: str) -> bool:
+        """移除仓库订阅
+        
+        Returns:
+            True if successful, False if subscription doesn't exist
+        """
         result = self.db.remove_subscription(repo_name)
         
         if result > 0:
             logger.info(f"移除订阅成功: {repo_name}")
+            return True
         else:
-            raise ValueError(f"订阅不存在: {repo_name}")
+            logger.warning(f"订阅不存在: {repo_name}")
+            return False
     
     def list_subscriptions(self) -> List[Dict]:
         """列出所有订阅"""

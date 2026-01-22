@@ -21,6 +21,11 @@ click==8.1.7
 rich==13.7.0
 python-dateutil==2.8.2
 
+# Web UI
+# Note: Pinned to 4.0.0 for compatibility with huggingface_hub 1.x
+# Version 4.44.1 has import issues with HfFolder
+gradio==4.0.0
+
 # Logging
 loguru==0.7.2
 
